@@ -37,7 +37,6 @@ export default async function ChatPage() {
       reads:message_reads(*)
     `)
     .order('created_at', { ascending: true })
-    .limit(50)
 
   return (
     <ClientOnly>
