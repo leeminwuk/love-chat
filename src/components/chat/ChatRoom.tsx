@@ -104,6 +104,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     )
 
     channel.subscribe((status) => {
+      console.log('[Realtime] status:', status)
       if (status === 'SUBSCRIBED') setConnected(true)
       if (status === 'CLOSED' || status === 'CHANNEL_ERROR') setConnected(false)
     })
@@ -138,6 +139,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       .single()
 
     if (error) {
+      console.error('[sendMessage] insert error:', error)
       setMessages((prev) => prev.filter((m) => m.id !== tempMsg.id))
       return
     }
