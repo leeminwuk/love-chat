@@ -116,8 +116,10 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   }, [])
 
   async function sendMessage(content: string, imageUrl?: string) {
+    const tempId = `temp-${Date.now()}`
+    console.log('[sendMessage] 1. adding optimistic', tempId)
     const tempMsg: Message = {
-      id: `temp-${Date.now()}`,
+      id: tempId,
       sender_id: currentUser.id,
       content: content || null,
       image_url: imageUrl ?? null,
@@ -126,7 +128,10 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       reactions: [],
       reads: [],
     }
-    setMessages((prev) => [...prev, tempMsg])
+    setMessages((prev) => {
+      console.log('[sendMessage] 2. prev count:', prev.length)
+      return [...prev, tempMsg]
+    })
 
     const { data, error } = await supabase
       .from('messages')
@@ -140,15 +145,17 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
 
     if (error) {
       console.error('[sendMessage] insert error:', error)
-      setMessages((prev) => prev.filter((m) => m.id !== tempMsg.id))
+      setMessages((prev) => prev.filter((m) => m.id !== tempId))
       return
     }
 
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === tempMsg.id ? { ...tempMsg, id: data.id, created_at: data.created_at } : m
+    console.log('[sendMessage] 3. replacing with real id', data.id)
+    setMessages((prev) => {
+      console.log('[sendMessage] 4. replacing, prev count:', prev.length)
+      return prev.map((m) =>
+        m.id === tempId ? { ...tempMsg, id: data.id, created_at: data.created_at } : m
       )
-    )
+    })
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
