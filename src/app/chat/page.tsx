@@ -38,30 +38,11 @@ export default async function ChatPage() {
     .order('created_at', { ascending: true })
     .limit(50)
 
-  if (messagesError) {
-    console.error('Messages query error:', messagesError)
-  }
-  console.log('Messages loaded:', messages?.length ?? 0)
-
-  // DEBUG: 임시 디버그 정보
-  const debugInfo = {
-    userId: user.id,
-    profile: myProfile?.nickname,
-    messagesCount: messages?.length ?? 0,
-    error: messagesError?.message ?? null,
-    firstMessage: messages?.[0] ?? null,
-  }
-
   return (
-    <>
-      <pre className="fixed top-0 right-0 z-50 bg-red-900 text-white text-[10px] p-2 max-w-xs overflow-auto max-h-40 opacity-80">
-        {JSON.stringify(debugInfo, null, 2)}
-      </pre>
-      <ChatRoom
-        currentUser={myProfile}
-        partnerUser={otherProfile ?? null}
-        initialMessages={(messages as Message[]) ?? []}
-      />
-    </>
+    <ChatRoom
+      currentUser={myProfile}
+      partnerUser={otherProfile ?? null}
+      initialMessages={(messages as Message[]) ?? []}
+    />
   )
 }
