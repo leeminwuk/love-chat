@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Message } from '@/types'
+import ClientOnly from '@/components/chat/ClientOnly'
 import ChatRoom from '@/components/chat/ChatRoom'
 
 export default async function ChatPage() {
@@ -27,7 +28,7 @@ export default async function ChatPage() {
     .single()
 
   // 초기 메시지 로드 (최근 50개)
-  const { data: messages, error: messagesError } = await supabase
+  const { data: messages } = await supabase
     .from('messages')
     .select(`
       *,
@@ -39,10 +40,12 @@ export default async function ChatPage() {
     .limit(50)
 
   return (
-    <ChatRoom
-      currentUser={myProfile}
-      partnerUser={otherProfile ?? null}
-      initialMessages={(messages as Message[]) ?? []}
-    />
+    <ClientOnly>
+      <ChatRoom
+        currentUser={myProfile}
+        partnerUser={otherProfile ?? null}
+        initialMessages={(messages as Message[]) ?? []}
+      />
+    </ClientOnly>
   )
 }
