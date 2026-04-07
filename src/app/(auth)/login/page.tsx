@@ -12,18 +12,36 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!nickname.trim()) return
+    const trimmed = nickname.trim()
+    if (!trimmed) return
 
     setLoading(true)
     setError('')
 
     const supabase = createClient()
+    const email = `${trimmed.toLowerCase()}@terminal.chat`
+    const password = `terminal-chat-${trimmed}`
 
-    // 익명 로그인
-    const { data: authData, error: authError } = await supabase.auth.signInAnonymously()
+    // 기존 계정 로그인 시도
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
-    if (authError || !authData.user) {
-      setError(authError?.message ?? '로그인 실패')
+    if (!signInError) {
+      router.push('/chat')
+      router.refresh()
+      return
+    }
+
+    // 없으면 회원가입
+    const { data: authData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+    })
+
+    if (signUpError || !authData.user) {
+      setError(signUpError?.message ?? '가입 실패')
       setLoading(false)
       return
     }
@@ -31,7 +49,7 @@ export default function LoginPage() {
     // 프로필 생성
     const { error: profileError } = await supabase
       .from('profiles')
-      .upsert({ id: authData.user.id, nickname: nickname.trim() })
+      .insert({ id: authData.user.id, nickname: trimmed })
 
     if (profileError) {
       setError(profileError.message)
