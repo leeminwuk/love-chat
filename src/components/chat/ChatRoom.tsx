@@ -36,11 +36,13 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   useEffect(() => {
     const channel = supabase.channel('chat-room')
 
-    // 새 메시지
+    // 새 메시지 (상대방 것만 — 내 메시지는 낙관적 업데이트로 처리)
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'messages' },
       async (payload) => {
+        if (payload.new.sender_id === currentUser.id) return
+
         const { data: sender } = await supabase
           .from('profiles')
           .select('*')
@@ -55,12 +57,10 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
         }
         setMessages((prev) => [...prev, newMsg])
 
-        if (payload.new.sender_id !== currentUser.id) {
-          await supabase.from('message_reads').upsert(
-            [{ message_id: payload.new.id, user_id: currentUser.id }],
-            { onConflict: 'message_id,user_id' }
-          )
-        }
+        await supabase.from('message_reads').upsert(
+          [{ message_id: payload.new.id, user_id: currentUser.id }],
+          { onConflict: 'message_id,user_id' }
+        )
       }
     )
 
@@ -124,11 +124,39 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   }, [currentUser.id, supabase, markAsRead, initialMessages])
 
   async function sendMessage(content: string, imageUrl?: string) {
-    await supabase.from('messages').insert({
+    // 낙관적 업데이트 — DB 응답 전에 즉시 표시
+    const tempMsg: Message = {
+      id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
       content: content || null,
       image_url: imageUrl ?? null,
-    })
+      created_at: new Date().toISOString(),
+      sender: currentUser,
+      reactions: [],
+      reads: [],
+    }
+    setMessages((prev) => [...prev, tempMsg])
+
+    const { data, error } = await supabase.from('messages').insert({
+      sender_id: currentUser.id,
+      content: content || null,
+      image_url: imageUrl ?? null,
+    }).select().single()
+
+    if (error) {
+      // 실패 시 임시 메시지 제거
+      setMessages((prev) => prev.filter((m) => m.id !== tempMsg.id))
+      return
+    }
+
+    // 실제 ID로 교체
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === tempMsg.id
+          ? { ...tempMsg, id: data.id, created_at: data.created_at }
+          : m
+      )
+    )
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
