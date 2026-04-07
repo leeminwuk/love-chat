@@ -34,12 +34,6 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
     await onSend(content)
   }
 
-  async function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      await handleSubmit(e as unknown as React.FormEvent)
-    }
-  }
-
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -73,7 +67,6 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
           type="text"
           value={text}
           onChange={handleChange}
-          onKeyDown={handleKeyDown}
           disabled={uploading}
           placeholder={uploading ? 'uploading...' : '메시지 입력...'}
           className="flex-1 bg-transparent text-terminal-text text-[12px] outline-none border-b border-terminal-border focus:border-terminal-green py-0.5 placeholder:text-terminal-dim disabled:opacity-50"
