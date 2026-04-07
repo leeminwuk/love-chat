@@ -1,17 +1,26 @@
 // src/components/terminal/ChatHeader.tsx
+'use client'
+
+import { useEffect, useState } from 'react'
+
 type ChatHeaderProps = {
   myNickname: string
   partnerNickname: string
 }
 
 export default function ChatHeader({ myNickname, partnerNickname }: ChatHeaderProps) {
-  const now = new Date()
-  const dateStr = now.toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-  })
+  const [dateStr, setDateStr] = useState('')
+
+  useEffect(() => {
+    setDateStr(
+      new Date().toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short',
+      })
+    )
+  }, [])
 
   return (
     <div className="flex justify-between items-center px-4 py-2 bg-terminal-bg-dark border-b border-terminal-border flex-shrink-0">
