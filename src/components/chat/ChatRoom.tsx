@@ -41,11 +41,16 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       config: { presence: { key: currentUser.id } },
     })
 
+    channel.on('system', {}, (payload) => {
+      console.log('[Realtime] system:', payload)
+    })
+
     // 새 메시지
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'messages' },
       async (payload) => {
+        console.log('[Realtime] new message:', payload)
         const { data: sender } = await supabase
           .from('profiles')
           .select('*')
@@ -127,7 +132,8 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       setPartnerTyping(isPartnerTyping)
     })
 
-    channel.subscribe((status) => {
+    channel.subscribe((status, err) => {
+      console.log('[Realtime] subscribe status:', status, err)
       if (status === 'SUBSCRIBED') {
         setConnected(true)
         channel.track({ typing: false })
