@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Message, Profile, Reaction, MessageRead } from '@/types'
 import TitleBar from '@/components/terminal/TitleBar'
@@ -17,26 +17,23 @@ type ChatRoomProps = {
 export default function ChatRoom({ currentUser, partnerUser, initialMessages }: ChatRoomProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [connected, setConnected] = useState(false)
-  const supabase = createClient()
-
-  const markAsRead = useCallback(async (msgs: Message[]) => {
-    const unread = msgs.filter(
-      (m) =>
-        m.sender_id !== currentUser.id &&
-        !m.reads.some((r) => r.user_id === currentUser.id)
-    )
-    if (unread.length === 0) return
-
-    await supabase.from('message_reads').upsert(
-      unread.map((m) => ({ message_id: m.id, user_id: currentUser.id })),
-      { onConflict: 'message_id,user_id' }
-    )
-  }, [currentUser.id, supabase])
+  const supabaseRef = useRef(createClient())
+  const supabase = supabaseRef.current
 
   useEffect(() => {
+    // 초기 읽음 처리
+    const unread = initialMessages.filter(
+      (m) => m.sender_id !== currentUser.id && !m.reads.some((r) => r.user_id === currentUser.id)
+    )
+    if (unread.length > 0) {
+      supabase.from('message_reads').upsert(
+        unread.map((m) => ({ message_id: m.id, user_id: currentUser.id })),
+        { onConflict: 'message_id,user_id' }
+      )
+    }
+
     const channel = supabase.channel('chat-room')
 
-    // 새 메시지 (상대방 것만 — 내 메시지는 낙관적 업데이트로 처리)
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -57,30 +54,26 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
         }
         setMessages((prev) => [...prev, newMsg])
 
-        await supabase.from('message_reads').upsert(
+        supabase.from('message_reads').upsert(
           [{ message_id: payload.new.id, user_id: currentUser.id }],
           { onConflict: 'message_id,user_id' }
         )
       }
     )
 
-    // 리액션 추가
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'reactions' },
       (payload) => {
-        const newReaction = payload.new as Reaction
+        const r = payload.new as Reaction
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === newReaction.message_id
-              ? { ...m, reactions: [...m.reactions, newReaction] }
-              : m
+            m.id === r.message_id ? { ...m, reactions: [...m.reactions, r] } : m
           )
         )
       }
     )
 
-    // 리액션 삭제
     channel.on(
       'postgres_changes',
       { event: 'DELETE', schema: 'public', table: 'reactions' },
@@ -95,7 +88,6 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       }
     )
 
-    // 읽음 확인
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'message_reads' },
@@ -112,19 +104,17 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     )
 
     channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        setConnected(true)
-        markAsRead(initialMessages)
-      }
+      if (status === 'SUBSCRIBED') setConnected(true)
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR') setConnected(false)
     })
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [currentUser.id, supabase, markAsRead, initialMessages])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function sendMessage(content: string, imageUrl?: string) {
-    // 낙관적 업데이트 — DB 응답 전에 즉시 표시
     const tempMsg: Message = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -137,24 +127,24 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     }
     setMessages((prev) => [...prev, tempMsg])
 
-    const { data, error } = await supabase.from('messages').insert({
-      sender_id: currentUser.id,
-      content: content || null,
-      image_url: imageUrl ?? null,
-    }).select().single()
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        sender_id: currentUser.id,
+        content: content || null,
+        image_url: imageUrl ?? null,
+      })
+      .select()
+      .single()
 
     if (error) {
-      // 실패 시 임시 메시지 제거
       setMessages((prev) => prev.filter((m) => m.id !== tempMsg.id))
       return
     }
 
-    // 실제 ID로 교체
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === tempMsg.id
-          ? { ...tempMsg, id: data.id, created_at: data.created_at }
-          : m
+        m.id === tempMsg.id ? { ...tempMsg, id: data.id, created_at: data.created_at } : m
       )
     )
   }
@@ -170,9 +160,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     if (existing) {
       await supabase.from('reactions').delete().eq('id', existing.id)
     } else {
-      await supabase
-        .from('reactions')
-        .insert({ message_id: messageId, user_id: currentUser.id, emoji })
+      await supabase.from('reactions').insert({ message_id: messageId, user_id: currentUser.id, emoji })
     }
   }
 
@@ -183,7 +171,6 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
         myNickname={currentUser.nickname}
         partnerNickname={partnerUser?.nickname ?? '...'}
       />
-
       <div className="flex-1 overflow-hidden flex flex-col">
         <MessageList
           messages={messages}
@@ -191,7 +178,6 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
           onReaction={toggleReaction}
         />
       </div>
-
       <ChatInput
         nickname={currentUser.nickname}
         senderId={currentUser.id}
