@@ -1,0 +1,106 @@
+<h2>UI 레이아웃 디자인</h2>
+<p class="subtitle">터미널 채팅 앱 전체 화면 구성</p>
+
+<div class="mockup" style="max-width:900px;margin:0 auto;">
+  <div class="mockup-header">Preview: Terminal Chat App</div>
+  <div class="mockup-body" style="padding:0;background:#111;">
+
+    <!-- Terminal Window -->
+    <div style="background:#1a1a1a;font-family:'Menlo','Monaco','Courier New',monospace;font-size:12px;height:560px;display:flex;flex-direction:column;border-radius:0 0 8px 8px;">
+
+      <!-- Title Bar -->
+      <div style="background:#2a2a2a;padding:10px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #333;flex-shrink:0;">
+        <div style="display:flex;gap:6px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></div>
+          <div style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></div>
+          <div style="width:12px;height:12px;border-radius:50%;background:#28c840;"></div>
+        </div>
+        <div style="flex:1;text-align:center;color:#888;font-size:11px;">terminal-chat — bash — 80×24</div>
+        <div style="color:#4af626;font-size:11px;">● 연결됨</div>
+      </div>
+
+      <!-- Chat Header -->
+      <div style="background:#111;padding:8px 16px;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+        <div style="color:#4af626;font-size:11px;">
+          <span style="color:#888;">session:</span> minuk ↔ 지은
+          <span style="margin-left:12px;color:#888;">uptime:</span> <span style="color:#ccc;">3h 24m</span>
+        </div>
+        <div style="color:#888;font-size:11px;">2026-04-07 Mon</div>
+      </div>
+
+      <!-- Messages Area -->
+      <div style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:8px;">
+
+        <!-- System message -->
+        <div style="color:#555;font-size:11px;text-align:center;">── session started ──</div>
+
+        <!-- Message from me -->
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="color:#4af626;">
+            <span style="color:#555;">[10:21]</span> minuk:~$ <span style="color:#fff;">안녕 오늘 뭐해?</span>
+          </div>
+        </div>
+
+        <!-- Message from her -->
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="color:#ccc;">
+            <span style="color:#555;">[10:22]</span> 지은:~$ <span style="color:#fff;">나 카페 왔어~ 공부 중</span>
+          </div>
+          <div style="padding-left:80px;display:flex;align-items:center;gap:6px;">
+            <span style="color:#555;font-size:10px;">✓✓ 읽음</span>
+            <span style="background:#2a2a2a;border:1px solid #333;border-radius:12px;padding:2px 8px;font-size:11px;cursor:pointer;">❤️ 1</span>
+          </div>
+        </div>
+
+        <!-- Image message -->
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="color:#ccc;">
+            <span style="color:#555;">[10:24]</span> 지은:~$ <span style="color:#888;">[image attached]</span>
+          </div>
+          <div style="margin-left:80px;background:#2a2a2a;border:1px solid #333;border-radius:4px;padding:8px;display:inline-block;">
+            <div style="width:160px;height:100px;background:#333;border-radius:2px;display:flex;align-items:center;justify-content:center;color:#555;font-size:11px;">☕ 카페 사진.jpg</div>
+          </div>
+          <div style="padding-left:80px;">
+            <span style="color:#555;font-size:10px;">✓✓ 읽음</span>
+          </div>
+        </div>
+
+        <!-- My message -->
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div style="color:#4af626;">
+            <span style="color:#555;">[10:25]</span> minuk:~$ <span style="color:#fff;">오 좋겠다 ㅎㅎ 나는 코딩 중</span>
+          </div>
+          <div style="padding-left:80px;">
+            <span style="color:#555;font-size:10px;">✓ 전송됨</span>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div style="color:#888;font-size:11px;">
+          지은:~$ <span style="color:#555;">▌</span><span style="animation:blink2 1s infinite;color:#555;">▌</span><span style="animation:blink3 1.2s infinite;color:#555;">▌</span>
+          <span style="color:#555;margin-left:4px;">typing...</span>
+        </div>
+
+      </div>
+
+      <!-- Input Area -->
+      <div style="border-top:1px solid #2a2a2a;padding:10px 16px;flex-shrink:0;background:#111;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#4af626;white-space:nowrap;">minuk:~$</span>
+          <div style="flex:1;background:transparent;border:none;color:#fff;font-family:inherit;font-size:12px;outline:none;border-bottom:1px solid #333;padding:2px 0;">
+            <span style="color:#aaa;">메시지 입력...</span>
+          </div>
+          <button style="background:none;border:1px solid #333;color:#888;font-family:inherit;font-size:11px;padding:4px 10px;border-radius:3px;cursor:pointer;">📎</button>
+          <button style="background:#1a3a1a;border:1px solid #4af626;color:#4af626;font-family:inherit;font-size:11px;padding:4px 10px;border-radius:3px;cursor:pointer;">[enter]</button>
+        </div>
+        <div style="color:#555;font-size:10px;margin-top:4px;">press enter to send · attach image with 📎</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes blink2 { 0%,100%{opacity:0} 33%{opacity:1} }
+@keyframes blink3 { 0%,33%{opacity:0} 66%,100%{opacity:1} }
+</style>

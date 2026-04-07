@@ -13,19 +13,13 @@
   --font-mono: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 
-:root {
-  --terminal-bg: #1a1a1a;
-  --terminal-green: #6a9955;
-  --terminal-text: #d4d4d4;
-}
-
 * {
   box-sizing: border-box;
 }
 
 body {
-  background-color: var(--terminal-bg);
-  color: var(--terminal-text);
+  background-color: var(--color-terminal-bg);
+  color: var(--color-terminal-text);
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
 }
 
