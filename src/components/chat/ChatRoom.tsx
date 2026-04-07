@@ -6,7 +6,6 @@ import type { Message, Profile, Reaction, MessageRead } from '@/types'
 import TitleBar from '@/components/terminal/TitleBar'
 import ChatHeader from '@/components/terminal/ChatHeader'
 import MessageList from '@/components/chat/MessageList'
-import TypingIndicator from '@/components/chat/TypingIndicator'
 import ChatInput from '@/components/chat/ChatInput'
 
 type ChatRoomProps = {
@@ -18,9 +17,7 @@ type ChatRoomProps = {
 export default function ChatRoom({ currentUser, partnerUser, initialMessages }: ChatRoomProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [connected, setConnected] = useState(false)
-  const [partnerTyping, setPartnerTyping] = useState(false)
   const supabase = createClient()
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   const markAsRead = useCallback(async (msgs: Message[]) => {
     const unread = msgs.filter(
@@ -37,20 +34,13 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   }, [currentUser.id, supabase])
 
   useEffect(() => {
-    const channel = supabase.channel('chat-room', {
-      config: { presence: { key: currentUser.id } },
-    })
-
-    channel.on('system', {}, (payload) => {
-      console.log('[Realtime] system:', payload)
-    })
+    const channel = supabase.channel('chat-room')
 
     // 새 메시지
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'messages' },
       async (payload) => {
-        console.log('[Realtime] new message:', payload)
         const { data: sender } = await supabase
           .from('profiles')
           .select('*')
@@ -121,36 +111,17 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       }
     )
 
-    // 타이핑 인디케이터 (Presence)
-    channel.on('presence', { event: 'sync' }, () => {
-      const state = channel.presenceState<{ typing: boolean }>()
-      const isPartnerTyping = Object.entries(state).some(
-        ([key, presences]) =>
-          key !== currentUser.id &&
-          presences.some((p) => p.typing === true)
-      )
-      setPartnerTyping(isPartnerTyping)
-    })
-
-    channel.subscribe((status, err) => {
-      console.log('[Realtime] subscribe status:', status, err)
+    channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         setConnected(true)
-        channel.track({ typing: false })
         markAsRead(initialMessages)
       }
     })
-
-    channelRef.current = channel
 
     return () => {
       supabase.removeChannel(channel)
     }
   }, [currentUser.id, supabase, markAsRead, initialMessages])
-
-  async function handleTyping(isTyping: boolean) {
-    channelRef.current?.track({ typing: isTyping })
-  }
 
   async function sendMessage(content: string, imageUrl?: string) {
     await supabase.from('messages').insert({
@@ -191,16 +162,13 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
           currentUserId={currentUser.id}
           onReaction={toggleReaction}
         />
-        {partnerTyping && partnerUser && (
-          <TypingIndicator nickname={partnerUser.nickname} />
-        )}
       </div>
 
       <ChatInput
         nickname={currentUser.nickname}
         senderId={currentUser.id}
         onSend={sendMessage}
-        onTyping={handleTyping}
+        onTyping={() => {}}
       />
     </div>
   )
