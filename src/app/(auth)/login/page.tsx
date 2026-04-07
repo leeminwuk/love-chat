@@ -6,21 +6,35 @@ import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!nickname.trim()) return
+
     setLoading(true)
     setError('')
 
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (error) {
-      setError(error.message)
+    // 익명 로그인
+    const { data: authData, error: authError } = await supabase.auth.signInAnonymously()
+
+    if (authError || !authData.user) {
+      setError(authError?.message ?? '로그인 실패')
+      setLoading(false)
+      return
+    }
+
+    // 프로필 생성
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert({ id: authData.user.id, nickname: nickname.trim() })
+
+    if (profileError) {
+      setError(profileError.message)
       setLoading(false)
       return
     }
@@ -32,9 +46,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-terminal-bg flex items-center justify-center font-mono p-4">
       <div className="w-full max-w-md">
-        {/* 터미널 창 */}
         <div className="border border-terminal-border rounded-lg overflow-hidden">
-          {/* 타이틀 바 */}
           <div className="flex items-center gap-2 bg-[#2a2a2a] px-4 py-2.5">
             <div className="flex gap-1.5">
               <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
@@ -46,44 +58,33 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* 로그인 폼 */}
           <div className="bg-terminal-bg p-6">
-            <div className="text-terminal-green mb-6 text-sm">
+            <div className="text-terminal-green mb-2 text-sm">
               <span className="text-terminal-dim">$</span> ./login.sh
+            </div>
+            <div className="text-terminal-dim text-xs mb-6">
+              닉네임을 입력하면 바로 채팅에 참여합니다.
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="flex items-center gap-3">
-                <label className="text-terminal-dim text-sm w-20 flex-shrink-0">
-                  email:
+                <label className="text-terminal-dim text-sm flex-shrink-0">
+                  nickname:
                 </label>
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
                   required
+                  maxLength={20}
                   className="flex-1 bg-transparent border-b border-terminal-border text-terminal-text text-sm py-1 outline-none focus:border-terminal-green"
-                  placeholder="your@email.com"
+                  placeholder="minuk"
                   autoFocus
                 />
               </div>
 
-              <div className="flex items-center gap-3">
-                <label className="text-terminal-dim text-sm w-20 flex-shrink-0">
-                  password:
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="flex-1 bg-transparent border-b border-terminal-border text-terminal-text text-sm py-1 outline-none focus:border-terminal-green"
-                  placeholder="••••••••"
-                />
-              </div>
-
               {error && (
-                <div className="text-red-400 text-xs mt-2">
+                <div className="text-red-400 text-xs">
                   <span className="text-terminal-dim">error:</span> {error}
                 </div>
               )}
@@ -91,10 +92,10 @@ export default function LoginPage() {
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !nickname.trim()}
                   className="border border-terminal-green text-terminal-green text-sm px-4 py-1.5 rounded hover:bg-terminal-green hover:text-terminal-bg transition-colors disabled:opacity-50"
                 >
-                  {loading ? 'authenticating...' : '[enter]'}
+                  {loading ? 'connecting...' : '[enter]'}
                 </button>
               </div>
             </form>
