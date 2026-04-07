@@ -27,7 +27,7 @@ export default async function ChatPage() {
     .single()
 
   // 초기 메시지 로드 (최근 50개)
-  const { data: messages } = await supabase
+  const { data: messages, error: messagesError } = await supabase
     .from('messages')
     .select(`
       *,
@@ -37,6 +37,11 @@ export default async function ChatPage() {
     `)
     .order('created_at', { ascending: true })
     .limit(50)
+
+  if (messagesError) {
+    console.error('Messages query error:', messagesError)
+  }
+  console.log('Messages loaded:', messages?.length ?? 0)
 
   return (
     <ChatRoom
