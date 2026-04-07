@@ -1,6 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-terminal-bg: #1a1a1a;
+  --color-terminal-bg-dark: #111111;
+  --color-terminal-bg-card: #2a2a2a;
+  --color-terminal-border: #333333;
+  --color-terminal-green: #6a9955;
+  --color-terminal-text: #d4d4d4;
+  --color-terminal-muted: #858585;
+  --color-terminal-dim: #555555;
+
+  --font-mono: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
 
 :root {
   --terminal-bg: #1a1a1a;
