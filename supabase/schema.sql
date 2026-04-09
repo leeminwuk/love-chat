@@ -52,3 +52,8 @@ create policy "insert own reads" on message_reads for insert to authenticated wi
 alter publication supabase_realtime add table messages;
 alter publication supabase_realtime add table reactions;
 alter publication supabase_realtime add table message_reads;
+
+-- Realtime + RLS 이벤트 정상 전달을 위해 필요
+alter table messages replica identity full;
+alter table reactions replica identity full;
+alter table message_reads replica identity full;

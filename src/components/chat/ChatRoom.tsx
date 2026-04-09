@@ -21,6 +21,12 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   const supabase = supabaseRef.current
 
   useEffect(() => {
+    if (Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
+
+  useEffect(() => {
     // 초기 읽음 처리
     const unread = initialMessages.filter(
       (m) => m.sender_id !== currentUser.id && !m.reads.some((r) => r.user_id === currentUser.id)
@@ -53,6 +59,17 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
           reads: [],
         }
         setMessages((prev) => [...prev, newMsg])
+
+        if (Notification.permission === 'granted' && document.hidden) {
+          const notif = new Notification(sender?.nickname ?? '새 메시지', {
+            body: payload.new.content ?? '이미지를 보냈습니다.',
+            icon: '/favicon.ico',
+          })
+          notif.onclick = () => {
+            window.focus()
+            notif.close()
+          }
+        }
 
         supabase.from('message_reads').upsert(
           [{ message_id: payload.new.id, user_id: currentUser.id }],
