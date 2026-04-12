@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Message } from '@/types'
 import ImageMessage from './ImageMessage'
 import ReactionBar from './ReactionBar'
@@ -16,12 +16,17 @@ type MessageItemProps = {
 
 export default function MessageItem({ message, isMe, currentUserId, onReaction }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
+  const [time, setTime] = useState('')
 
-  const time = new Date(message.created_at).toLocaleTimeString('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  useEffect(() => {
+    setTime(
+      new Date(message.created_at).toLocaleTimeString('ko-KR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+    )
+  }, [message.created_at])
 
   const isRead = message.reads.some((r) => r.user_id !== currentUserId)
   const readStatus = isMe

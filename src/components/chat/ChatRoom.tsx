@@ -14,6 +14,9 @@ type ChatRoomProps = {
   initialMessages: Message[]
 }
 
+const LOG = (...args: unknown[]) => console.log('[CHAT]', ...args)
+const ERR = (...args: unknown[]) => console.error('[CHAT][ERR]', ...args)
+
 export default function ChatRoom({ currentUser, partnerUser, initialMessages }: ChatRoomProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [connected, setConnected] = useState(false)
@@ -24,11 +27,24 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].created_at : null
   )
 
-  // 실제 메시지(optimistic 제외) 기준으로 마지막 수신 시각 추적
+  LOG('=== ChatRoom mount ===', {
+    currentUser: currentUser.id,
+    nickname: currentUser.nickname,
+    partnerUser: partnerUser?.id,
+    initialMessagesCount: initialMessages.length,
+    lastMessageTime: lastMessageTimeRef.current,
+  })
+
+  // messages 상태가 바뀔 때마다 전체 ID 목록 출력
   useEffect(() => {
+    LOG('messages state updated:', {
+      count: messages.length,
+      ids: messages.map((m) => ({ id: m.id.slice(0, 8), sender: m.sender?.nickname, content: m.content?.slice(0, 20) })),
+    })
     const realMessages = messages.filter((m) => !m.id.startsWith('temp-'))
     if (realMessages.length > 0) {
       lastMessageTimeRef.current = realMessages[realMessages.length - 1].created_at
+      LOG('lastMessageTime updated:', lastMessageTimeRef.current)
     }
   }, [messages])
 
@@ -39,11 +55,14 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   }, [])
 
   useEffect(() => {
+    LOG('=== Setting up Realtime channel ===')
+
     // 초기 읽음 처리
     const unread = initialMessages.filter(
       (m) => m.sender_id !== currentUser.id && !m.reads.some((r) => r.user_id === currentUser.id)
     )
     if (unread.length > 0) {
+      LOG('marking initial unread messages:', unread.map((m) => m.id.slice(0, 8)))
       supabase.from('message_reads').upsert(
         unread.map((m) => ({ message_id: m.id, user_id: currentUser.id })),
         { onConflict: 'message_id,user_id' }
@@ -51,31 +70,55 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     }
 
     const channel = supabase.channel('chat-room')
+    LOG('channel created:', channel.topic)
 
     channel.on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'messages' },
       async (payload) => {
-        if (payload.new.sender_id === currentUser.id) return
+        LOG('--- [Realtime] messages INSERT received ---')
+        LOG('raw payload:', JSON.stringify(payload.new))
+        LOG('payload.new.sender_id:', payload.new.sender_id)
+        LOG('currentUser.id:', currentUser.id)
+        LOG('is own message?', payload.new.sender_id === currentUser.id)
 
-        const { data: sender, error } = await supabase
+        if (payload.new.sender_id === currentUser.id) {
+          LOG('=> own message, skipping realtime insert (handled by optimistic UI)')
+          return
+        }
+
+        LOG('=> partner message, fetching sender profile for id:', payload.new.sender_id)
+        const { data: sender, error: senderError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', payload.new.sender_id)
           .single()
 
-        if (error || !sender) {
-          console.error('[Realtime] sender fetch failed, using fallback:', error)
+        LOG('sender fetch result:', { sender, error: senderError })
+
+        if (senderError || !sender) {
+          ERR('sender fetch failed, using fallback. error:', senderError)
         }
+
+        const resolvedSender = sender ?? partnerUser ?? { id: payload.new.sender_id, nickname: '???', created_at: '' }
+        LOG('resolved sender:', resolvedSender)
 
         const newMsg: Message = {
           ...(payload.new as Omit<Message, 'sender' | 'reactions' | 'reads'>),
-          sender: sender ?? partnerUser ?? { id: payload.new.sender_id, nickname: '???', created_at: '' },
+          sender: resolvedSender,
           reactions: [],
           reads: [],
         }
+        LOG('constructed newMsg:', { id: newMsg.id.slice(0, 8), content: newMsg.content?.slice(0, 30) })
+
         setMessages((prev) => {
-          if (prev.some((m) => m.id === newMsg.id)) return prev
+          const isDuplicate = prev.some((m) => m.id === newMsg.id)
+          LOG('setMessages check - isDuplicate:', isDuplicate, '| prev.length:', prev.length)
+          if (isDuplicate) {
+            LOG('=> duplicate detected, skipping')
+            return prev
+          }
+          LOG('=> adding newMsg to state, new length will be:', prev.length + 1)
           return [...prev, newMsg]
         })
 
@@ -90,6 +133,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
           }
         }
 
+        LOG('upserting message_read for message:', payload.new.id.slice(0, 8))
         supabase.from('message_reads').upsert(
           [{ message_id: payload.new.id, user_id: currentUser.id }],
           { onConflict: 'message_id,user_id' }
@@ -101,6 +145,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'reactions' },
       (payload) => {
+        LOG('[Realtime] reactions INSERT:', payload.new)
         const r = payload.new as Reaction
         setMessages((prev) =>
           prev.map((m) =>
@@ -114,6 +159,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       'postgres_changes',
       { event: 'DELETE', schema: 'public', table: 'reactions' },
       (payload) => {
+        LOG('[Realtime] reactions DELETE:', payload.old)
         const deletedId = payload.old.id
         setMessages((prev) =>
           prev.map((m) => ({
@@ -128,6 +174,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'message_reads' },
       (payload) => {
+        LOG('[Realtime] message_reads INSERT:', payload.new)
         const newRead = payload.new as MessageRead
         setMessages((prev) =>
           prev.map((m) =>
@@ -140,12 +187,16 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     )
 
     channel.subscribe(async (status) => {
-      console.log('[Realtime] status:', status)
+      LOG('=== channel status changed:', prevStatusRef.current, '->', status, '===')
 
       if (status === 'SUBSCRIBED') {
-        // 재연결 시: 끊겨 있던 동안 누락된 메시지를 DB에서 보충
-        if (prevStatusRef.current !== null && prevStatusRef.current !== 'SUBSCRIBED') {
+        const isReconnect = prevStatusRef.current !== null && prevStatusRef.current !== 'SUBSCRIBED'
+        LOG('SUBSCRIBED | isReconnect:', isReconnect, '| prevStatus:', prevStatusRef.current)
+
+        if (isReconnect) {
           const since = lastMessageTimeRef.current
+          LOG('reconnect: fetching missed messages since:', since)
+
           let query = supabase
             .from('messages')
             .select('*, sender:profiles!sender_id(*), reactions(*), reads:message_reads(*)')
@@ -153,11 +204,16 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
           if (since) {
             query = query.gt('created_at', since)
           }
-          const { data: missed } = await query
+
+          const { data: missed, error: missedError } = await query
+          LOG('missed messages fetch result:', { count: missed?.length ?? 0, error: missedError })
+
           if (missed && missed.length > 0) {
+            LOG('missed message ids:', missed.map((m) => m.id.slice(0, 8)))
             setMessages((prev) => {
               const existingIds = new Set(prev.map((m) => m.id))
               const newMsgs = (missed as Message[]).filter((m) => !existingIds.has(m.id))
+              LOG('after dedup, adding missed:', newMsgs.length, 'messages')
               return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
             })
           }
@@ -166,6 +222,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       }
 
       if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        ERR('channel disconnected with status:', status)
         setConnected(false)
       }
 
@@ -173,6 +230,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     })
 
     return () => {
+      LOG('=== ChatRoom unmount, removing channel ===')
       supabase.removeChannel(channel)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,7 +238,8 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
 
   async function sendMessage(content: string, imageUrl?: string) {
     const tempId = `temp-${Date.now()}`
-    console.log('[sendMessage] 1. adding optimistic', tempId)
+    LOG('=== sendMessage start ===', { tempId, content: content?.slice(0, 30), imageUrl })
+
     const tempMsg: Message = {
       id: tempId,
       sender_id: currentUser.id,
@@ -191,11 +250,13 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       reactions: [],
       reads: [],
     }
+
     setMessages((prev) => {
-      console.log('[sendMessage] 2. prev count:', prev.length)
+      LOG('optimistic add - prev.length:', prev.length, '-> new length:', prev.length + 1)
       return [...prev, tempMsg]
     })
 
+    LOG('inserting to DB...')
     const { data, error } = await supabase
       .from('messages')
       .insert({
@@ -206,19 +267,23 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       .select()
       .single()
 
+    LOG('DB insert result:', { data: data ? { id: data.id?.slice(0, 8), created_at: data.created_at } : null, error })
+
     if (error) {
-      console.error('[sendMessage] insert error:', error)
+      ERR('insert failed, removing optimistic message:', error)
       setMessages((prev) => prev.filter((m) => m.id !== tempId))
       return
     }
 
-    console.log('[sendMessage] 3. replacing with real id', data.id)
+    LOG('replacing tempId', tempId.slice(0, 12), 'with real id', data.id.slice(0, 8))
     setMessages((prev) => {
-      console.log('[sendMessage] 4. replacing, prev count:', prev.length)
+      const found = prev.some((m) => m.id === tempId)
+      LOG('replace - tempId found?', found, '| prev.length:', prev.length)
       return prev.map((m) =>
         m.id === tempId ? { ...tempMsg, id: data.id, created_at: data.created_at } : m
       )
     })
+    LOG('=== sendMessage done ===')
   }
 
   async function toggleReaction(messageId: string, emoji: string) {
