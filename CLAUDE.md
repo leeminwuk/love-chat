@@ -4,6 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTS.md
 
+## Git Commit Rules
+
+**NEVER add AI attribution to commit messages.**
+- No `Co-Authored-By: Claude` lines
+- No `Generated with Claude Code` footers
+- No AI tool mentions anywhere in the commit message
+- Use the `commit` skill when committing
+
 ## Commands
 
 ```bash

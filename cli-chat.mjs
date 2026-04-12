@@ -107,6 +107,15 @@ async function main() {
     }
   }
 
+  // 수신된 메시지 ID 추적 (중복 방지)
+  const receivedIds = new Set(recentMsgs?.map((m) => m.id) ?? [])
+
+  // 재연결 복구용 상태 추적
+  let prevStatus = null
+  let lastMessageTime = recentMsgs?.length > 0
+    ? recentMsgs[recentMsgs.length - 1].created_at
+    : null
+
   // Realtime 구독
   const channel = supabase.channel('cli-chat')
 
@@ -117,22 +126,64 @@ async function main() {
       // 자기가 보낸 건 이미 표시했으므로 스킵
       if (payload.new.sender_id === user.id) return
 
-      const { data: sender } = await supabase
+      // 중복 방지
+      if (receivedIds.has(payload.new.id)) return
+      receivedIds.add(payload.new.id)
+
+      const { data: sender, error: senderError } = await supabase
         .from('profiles')
         .select('nickname')
         .eq('id', payload.new.sender_id)
         .single()
 
-      printMessage(
-        { ...payload.new, nickname: sender?.nickname },
-        user.id
-      )
+      if (senderError) {
+        process.stderr.write(`\x1b[31m[warn] sender fetch failed: ${senderError.message}\x1b[0m\n`)
+      }
+
+      const nickname = sender?.nickname ?? '???'
+      printMessage({ ...payload.new, nickname }, user.id)
+      if (payload.new.created_at > (lastMessageTime ?? '')) {
+        lastMessageTime = payload.new.created_at
+      }
       rl.prompt(true)
     }
   )
 
-  channel.subscribe((status) => {
-    if (status !== 'SUBSCRIBED') return
+  channel.subscribe(async (status) => {
+    const isReconnect = prevStatus !== null && prevStatus !== 'SUBSCRIBED' && status === 'SUBSCRIBED'
+
+    if (status === 'SUBSCRIBED' && isReconnect) {
+      process.stdout.write(`\n${green('● 재연결됨')} ${dim('— 누락 메시지 복구 중...')}\n`)
+
+      let query = supabase
+        .from('messages')
+        .select('*, sender:profiles!sender_id(nickname)')
+        .order('created_at', { ascending: true })
+      if (lastMessageTime) {
+        query = query.gt('created_at', lastMessageTime)
+      }
+
+      const { data: missed, error } = await query
+      if (error) {
+        process.stderr.write(`\x1b[31m[warn] 누락 메시지 fetch 실패: ${error.message}\x1b[0m\n`)
+      } else if (missed && missed.length > 0) {
+        for (const msg of missed) {
+          if (receivedIds.has(msg.id)) continue
+          receivedIds.add(msg.id)
+          printMessage({ ...msg, nickname: msg.sender?.nickname ?? '???' }, user.id)
+          if (msg.created_at > (lastMessageTime ?? '')) {
+            lastMessageTime = msg.created_at
+          }
+        }
+      }
+      rl.prompt(true)
+    }
+
+    if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      process.stdout.write(`\n${dim(`[연결 끊김: ${status}]`)}\n`)
+    }
+
+    prevStatus = status
   })
 
   // 입력 루프
@@ -159,10 +210,14 @@ async function main() {
       if (error) {
         console.error(`\x1b[31merror: ${error.message}\x1b[0m`)
       } else {
+        const sentAt = new Date().toISOString()
         printMessage(
-          { created_at: new Date().toISOString(), sender_id: user.id, content: msg, nickname: trimmed },
+          { created_at: sentAt, sender_id: user.id, content: msg, nickname: trimmed },
           user.id
         )
+        if (sentAt > (lastMessageTime ?? '')) {
+          lastMessageTime = sentAt
+        }
       }
 
       inputPrompt()
