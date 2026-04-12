@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import type { Message } from '@/types'
-import ClientOnly from '@/components/chat/ClientOnly'
-import ChatRoom from '@/components/chat/ChatRoom'
+import dynamic from 'next/dynamic'
+
+const ChatRoom = dynamic(() => import('@/components/chat/ChatRoom'), { ssr: false })
 
 export default async function ChatPage() {
   const supabase = await createClient()
@@ -39,12 +40,10 @@ export default async function ChatPage() {
     .order('created_at', { ascending: true })
 
   return (
-    <ClientOnly>
-      <ChatRoom
-        currentUser={myProfile}
-        partnerUser={otherProfile ?? null}
-        initialMessages={(messages as Message[]) ?? []}
-      />
-    </ClientOnly>
+    <ChatRoom
+      currentUser={myProfile}
+      partnerUser={otherProfile ?? null}
+      initialMessages={(messages as Message[]) ?? []}
+    />
   )
 }
