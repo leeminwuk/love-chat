@@ -19,6 +19,18 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
   const [connected, setConnected] = useState(false)
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
+  const prevStatusRef = useRef<string | null>(null)
+  const lastMessageTimeRef = useRef<string | null>(
+    initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].created_at : null
+  )
+
+  // 실제 메시지(optimistic 제외) 기준으로 마지막 수신 시각 추적
+  useEffect(() => {
+    const realMessages = messages.filter((m) => !m.id.startsWith('temp-'))
+    if (realMessages.length > 0) {
+      lastMessageTimeRef.current = realMessages[realMessages.length - 1].created_at
+    }
+  }, [messages])
 
   useEffect(() => {
     if (Notification.permission === 'default') {
@@ -46,19 +58,26 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       async (payload) => {
         if (payload.new.sender_id === currentUser.id) return
 
-        const { data: sender } = await supabase
+        const { data: sender, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', payload.new.sender_id)
           .single()
 
+        if (error || !sender) {
+          console.error('[Realtime] sender fetch failed, using fallback:', error)
+        }
+
         const newMsg: Message = {
           ...(payload.new as Omit<Message, 'sender' | 'reactions' | 'reads'>),
-          sender: sender!,
+          sender: sender ?? partnerUser ?? { id: payload.new.sender_id, nickname: '???', created_at: '' },
           reactions: [],
           reads: [],
         }
-        setMessages((prev) => [...prev, newMsg])
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMsg.id)) return prev
+          return [...prev, newMsg]
+        })
 
         if (Notification.permission === 'granted' && document.hidden) {
           const notif = new Notification(sender?.nickname ?? '새 메시지', {
@@ -120,10 +139,37 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
       }
     )
 
-    channel.subscribe((status) => {
+    channel.subscribe(async (status) => {
       console.log('[Realtime] status:', status)
-      if (status === 'SUBSCRIBED') setConnected(true)
-      if (status === 'CLOSED' || status === 'CHANNEL_ERROR') setConnected(false)
+
+      if (status === 'SUBSCRIBED') {
+        // 재연결 시: 끊겨 있던 동안 누락된 메시지를 DB에서 보충
+        if (prevStatusRef.current !== null && prevStatusRef.current !== 'SUBSCRIBED') {
+          const since = lastMessageTimeRef.current
+          let query = supabase
+            .from('messages')
+            .select('*, sender:profiles!sender_id(*), reactions(*), reads:message_reads(*)')
+            .order('created_at', { ascending: true })
+          if (since) {
+            query = query.gt('created_at', since)
+          }
+          const { data: missed } = await query
+          if (missed && missed.length > 0) {
+            setMessages((prev) => {
+              const existingIds = new Set(prev.map((m) => m.id))
+              const newMsgs = (missed as Message[]).filter((m) => !existingIds.has(m.id))
+              return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
+            })
+          }
+        }
+        setConnected(true)
+      }
+
+      if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        setConnected(false)
+      }
+
+      prevStatusRef.current = status
     })
 
     return () => {

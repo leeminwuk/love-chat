@@ -15,7 +15,8 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
+  const supabase = supabaseRef.current
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setText(e.target.value)
