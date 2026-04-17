@@ -57,3 +57,21 @@ alter publication supabase_realtime add table message_reads;
 alter table messages replica identity full;
 alter table reactions replica identity full;
 alter table message_reads replica identity full;
+
+-- storage
+insert into storage.buckets (id, name, public)
+values ('messages', 'messages', true)
+on conflict (id) do update
+set
+  name = excluded.name,
+  public = excluded.public;
+
+drop policy if exists "authenticated users can upload" on storage.objects;
+create policy "authenticated users can upload"
+on storage.objects for insert to authenticated
+with check (bucket_id = 'messages');
+
+drop policy if exists "public read messages storage" on storage.objects;
+create policy "public read messages storage"
+on storage.objects for select to public
+using (bucket_id = 'messages');

@@ -272,7 +272,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     if (error) {
       ERR('insert failed, removing optimistic message:', error)
       setMessages((prev) => prev.filter((m) => m.id !== tempId))
-      return
+      throw error
     }
 
     LOG('replacing tempId', tempId.slice(0, 12), 'with real id', data.id.slice(0, 8))

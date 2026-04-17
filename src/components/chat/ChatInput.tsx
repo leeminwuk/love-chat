@@ -13,6 +13,7 @@ type ChatInputProps = {
 export default function ChatInput({ nickname, senderId, onSend, onTyping }: ChatInputProps) {
   const [text, setText] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const supabaseRef = useRef(createClient())
@@ -20,6 +21,7 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setText(e.target.value)
+    if (errorMessage) setErrorMessage(null)
     onTyping(true)
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(() => onTyping(false), 1500)
@@ -31,31 +33,50 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
 
     const content = text.trim()
     setText('')
+    setErrorMessage(null)
     onTyping(false)
-    await onSend(content)
+    try {
+      await onSend(content)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '메시지 전송에 실패했습니다.'
+      console.error('Send failed:', error)
+      setErrorMessage(message)
+    }
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
 
-    setUploading(true)
-    const path = `${senderId}/${Date.now()}-${file.name}`
-    const { error } = await supabase.storage
-      .from('messages')
-      .upload(path, file)
-
-    if (error) {
-      console.error('Upload failed:', error.message)
-      setUploading(false)
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('이미지 파일만 업로드할 수 있습니다.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
 
-    const { data } = supabase.storage.from('messages').getPublicUrl(path)
-    await onSend('', data.publicUrl)
-    setUploading(false)
+    setUploading(true)
+    setErrorMessage(null)
 
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    try {
+      const path = `${senderId}/${Date.now()}-${file.name}`
+      const { error } = await supabase.storage
+        .from('messages')
+        .upload(path, file)
+
+      if (error) {
+        throw error
+      }
+
+      const { data } = supabase.storage.from('messages').getPublicUrl(path)
+      await onSend('', data.publicUrl)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '이미지 업로드에 실패했습니다.'
+      console.error('Upload failed:', error)
+      setErrorMessage(message)
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   return (
@@ -98,8 +119,15 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
         </button>
       </form>
 
-      <div className="text-terminal-dim text-[10px] mt-1">
-        press enter to send · attach image with 📎
+      <div className="mt-1 flex items-center justify-between gap-4">
+        <div className="text-terminal-dim text-[10px]">
+          press enter to send · attach image with 📎
+        </div>
+        {errorMessage && (
+          <div className="text-[10px] text-red-400 text-right">
+            {errorMessage}
+          </div>
+        )}
       </div>
     </div>
   )
