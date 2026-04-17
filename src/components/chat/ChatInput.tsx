@@ -10,6 +10,21 @@ type ChatInputProps = {
   onTyping: (isTyping: boolean) => void
 }
 
+function getSafeImageExtension(file: File) {
+  const mimeExtension = file.type.split('/')[1]?.toLowerCase()
+  const normalizedMimeExtension = mimeExtension === 'jpeg' ? 'jpg' : mimeExtension
+  if (normalizedMimeExtension && /^[a-z0-9]+$/.test(normalizedMimeExtension)) {
+    return normalizedMimeExtension
+  }
+
+  const fileExtension = file.name.split('.').pop()?.toLowerCase()
+  if (fileExtension && /^[a-z0-9]+$/.test(fileExtension)) {
+    return fileExtension
+  }
+
+  return 'bin'
+}
+
 export default function ChatInput({ nickname, senderId, onSend, onTyping }: ChatInputProps) {
   const [text, setText] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -58,7 +73,8 @@ export default function ChatInput({ nickname, senderId, onSend, onTyping }: Chat
     setErrorMessage(null)
 
     try {
-      const path = `${senderId}/${Date.now()}-${file.name}`
+      const extension = getSafeImageExtension(file)
+      const path = `${senderId}/${Date.now()}.${extension}`
       const { error } = await supabase.storage
         .from('messages')
         .upload(path, file)
