@@ -51,8 +51,16 @@ function printMessage(msg, myId) {
   const isMe = msg.sender_id === myId
   const nick = msg.nickname || msg.sender?.nickname || '?'
   const prefix = isMe ? green(`${nick}:~$`) : gray(`${nick}:~$`)
-  const content = msg.content || '[image]'
-  process.stdout.write(`\r${dim(`[${time}]`)} ${prefix} ${content}\n`)
+  const content = msg.content?.trim()
+  const imageUrl = msg.image_url?.trim()
+
+  if (content) {
+    process.stdout.write(`\r${dim(`[${time}]`)} ${prefix} ${content}\n`)
+  } else if (imageUrl) {
+    process.stdout.write(`\r${dim(`[${time}]`)} ${prefix} ${dim('[image]')} ${imageUrl}\n`)
+  } else {
+    process.stdout.write(`\r${dim(`[${time}]`)} ${prefix} ${dim('[empty message]')}\n`)
+  }
 }
 
 function sanitizeNotificationText(text, fallback) {
@@ -63,21 +71,20 @@ function escapeAppleScript(value) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function notifyNewMessage(title, body) {
+function notifyNewMessage() {
   if (!notificationsEnabled) return
 
-  const safeTitle = sanitizeNotificationText(title, '새 메시지')
-  const safeBody = sanitizeNotificationText(body, '이미지를 보냈습니다.')
+  const safeTitle = sanitizeNotificationText(env.CHAT_CLI_NOTIFICATION_TITLE, 'Notice')
 
   if (process.platform === 'darwin') {
-    const script = `display notification "${escapeAppleScript(safeBody)}" with title "${escapeAppleScript(safeTitle)}"`
+    const script = `display notification "" with title "${escapeAppleScript(safeTitle)}"`
     const child = spawn('osascript', ['-e', script], { stdio: 'ignore' })
     child.on('error', () => {})
     return
   }
 
   if (process.platform === 'linux') {
-    const child = spawn('notify-send', [safeTitle, safeBody], { stdio: 'ignore' })
+    const child = spawn('notify-send', [safeTitle], { stdio: 'ignore' })
     child.on('error', () => {})
     return
   }
@@ -87,7 +94,7 @@ function notifyNewMessage(title, body) {
       '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null',
       '[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null',
       `$xml = New-Object Windows.Data.Xml.Dom.XmlDocument`,
-      `$xml.LoadXml("<toast><visual><binding template=\\"ToastGeneric\\"><text>${safeTitle}</text><text>${safeBody}</text></binding></visual></toast>")`,
+      `$xml.LoadXml("<toast><visual><binding template=\\"ToastGeneric\\"><text>${safeTitle}</text></binding></visual></toast>")`,
       '$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)',
       '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("terminal-chat").Show($toast)',
     ].join('; ')
@@ -136,6 +143,7 @@ async function main() {
   console.log()
   console.log(green('● 연결됨') + dim(` — ${trimmed}으로 접속`))
   console.log(dim('메시지를 입력하고 Enter. /quit으로 종료.'))
+  console.log(dim('이미지 메시지는 [image] URL 형태로 표시됩니다.'))
   console.log(dim(`CLI 알림: ${notificationsEnabled ? 'ON' : 'OFF'} (env CHAT_CLI_NOTIFICATIONS=0 으로 비활성화)`))
   console.log(dim('── session started ──'))
   console.log()
@@ -187,7 +195,7 @@ async function main() {
 
       const nickname = sender?.nickname ?? '???'
       printMessage({ ...payload.new, nickname }, user.id)
-      notifyNewMessage(nickname, payload.new.content ?? '[image]')
+      notifyNewMessage()
       if (payload.new.created_at > (lastMessageTime ?? '')) {
         lastMessageTime = payload.new.created_at
       }
