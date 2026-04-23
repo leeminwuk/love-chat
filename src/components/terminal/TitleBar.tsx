@@ -1,9 +1,19 @@
 // src/components/terminal/TitleBar.tsx
 type TitleBarProps = {
-  connected: boolean
+  status: 'connecting' | 'connected' | 'reconnecting'
 }
 
-export default function TitleBar({ connected }: TitleBarProps) {
+export default function TitleBar({ status }: TitleBarProps) {
+  const statusLabel =
+    status === 'connected'
+      ? '● 연결됨'
+      : status === 'reconnecting'
+        ? '◐ 재연결 중...'
+        : '○ 연결 중...'
+
+  const statusClass =
+    status === 'connected' ? 'text-terminal-green' : 'text-yellow-400'
+
   return (
     <div className="flex items-center gap-2 bg-[#2a2a2a] px-4 py-2.5 border-b border-terminal-border flex-shrink-0">
       {/* 신호등 */}
@@ -19,8 +29,8 @@ export default function TitleBar({ connected }: TitleBarProps) {
       </div>
 
       {/* 연결 상태 */}
-      <div className={`text-[11px] ${connected ? 'text-terminal-green' : 'text-terminal-muted'}`}>
-        {connected ? '● 연결됨' : '○ 연결 중...'}
+      <div className={`text-[11px] ${statusClass}`}>
+        {statusLabel}
       </div>
     </div>
   )

@@ -12,17 +12,51 @@ type ChatRoomProps = {
   currentUser: Profile
   partnerUser: Profile | null
   initialMessages: Message[]
+  initialHasOlder: boolean
 }
+
+type ConnectionState = 'connecting' | 'connected' | 'reconnecting'
 
 const LOG = (...args: unknown[]) => console.log('[CHAT]', ...args)
 const ERR = (...args: unknown[]) => console.error('[CHAT][ERR]', ...args)
+const PAGE_SIZE = 50
+const RECOVERY_POLL_INTERVAL_MS = 1500
 
-export default function ChatRoom({ currentUser, partnerUser, initialMessages }: ChatRoomProps) {
+function mergeMessages(existing: Message[], incoming: Message[]) {
+  const merged = new Map(existing.map((message) => [message.id, message]))
+
+  for (const message of incoming) {
+    merged.set(message.id, message)
+  }
+
+  return Array.from(merged.values())
+    .sort((a, b) => {
+      if (a.created_at === b.created_at) {
+        return a.id.localeCompare(b.id)
+      }
+      return a.created_at.localeCompare(b.created_at)
+    })
+}
+
+export default function ChatRoom({
+  currentUser,
+  partnerUser,
+  initialMessages,
+  initialHasOlder,
+}: ChatRoomProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
-  const [connected, setConnected] = useState(false)
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
+  const [hasOlder, setHasOlder] = useState(initialHasOlder)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
   const prevStatusRef = useRef<string | null>(null)
+  const connectionStateRef = useRef<ConnectionState>('connecting')
+  const syncInFlightRef = useRef(false)
+  const loadOlderInFlightRef = useRef(false)
+  const oldestMessageTimeRef = useRef<string | null>(
+    initialMessages.length > 0 ? initialMessages[0].created_at : null
+  )
   const lastMessageTimeRef = useRef<string | null>(
     initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].created_at : null
   )
@@ -43,7 +77,9 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
     })
     const realMessages = messages.filter((m) => !m.id.startsWith('temp-'))
     if (realMessages.length > 0) {
+      oldestMessageTimeRef.current = realMessages[0].created_at
       lastMessageTimeRef.current = realMessages[realMessages.length - 1].created_at
+      LOG('oldestMessageTime updated:', oldestMessageTimeRef.current)
       LOG('lastMessageTime updated:', lastMessageTimeRef.current)
     }
   }, [messages])
@@ -56,6 +92,61 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
 
   useEffect(() => {
     LOG('=== Setting up Realtime channel ===')
+
+    const updateConnectionState = (nextState: ConnectionState) => {
+      connectionStateRef.current = nextState
+      setConnectionState(nextState)
+    }
+
+    const syncLatestMessages = async (reason: string) => {
+      if (syncInFlightRef.current) {
+        LOG('sync skipped, already in flight:', reason)
+        return
+      }
+
+      syncInFlightRef.current = true
+      const since = lastMessageTimeRef.current
+      LOG('syncLatestMessages start:', { reason, since })
+
+      try {
+        let query = supabase
+          .from('messages')
+          .select('*, sender:profiles!sender_id(*), reactions(*), reads:message_reads(*)')
+
+        if (since) {
+          query = query
+            .gt('created_at', since)
+            .order('created_at', { ascending: true })
+        } else {
+          query = query
+            .order('created_at', { ascending: false })
+            .limit(PAGE_SIZE)
+        }
+
+        const { data, error } = await query
+        LOG('syncLatestMessages result:', { reason, count: data?.length ?? 0, error })
+
+        if (error) {
+          throw error
+        }
+
+        if (!data || data.length === 0) {
+          return
+        }
+
+        const normalized = since ? (data as Message[]) : [...(data as Message[])].reverse()
+
+        setMessages((prev) => {
+          const next = mergeMessages(prev, normalized)
+          LOG('sync merged messages:', { reason, prevCount: prev.length, nextCount: next.length })
+          return next
+        })
+      } catch (error) {
+        ERR('syncLatestMessages failed:', reason, error)
+      } finally {
+        syncInFlightRef.current = false
+      }
+    }
 
     // 초기 읽음 처리
     const unread = initialMessages.filter(
@@ -119,7 +210,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
             return prev
           }
           LOG('=> adding newMsg to state, new length will be:', prev.length + 1)
-          return [...prev, newMsg]
+          return mergeMessages(prev, [newMsg])
         })
 
         if (Notification.permission === 'granted' && document.hidden) {
@@ -193,48 +284,99 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
         const isReconnect = prevStatusRef.current !== null && prevStatusRef.current !== 'SUBSCRIBED'
         LOG('SUBSCRIBED | isReconnect:', isReconnect, '| prevStatus:', prevStatusRef.current)
 
-        if (isReconnect) {
-          const since = lastMessageTimeRef.current
-          LOG('reconnect: fetching missed messages since:', since)
-
-          let query = supabase
-            .from('messages')
-            .select('*, sender:profiles!sender_id(*), reactions(*), reads:message_reads(*)')
-            .order('created_at', { ascending: true })
-          if (since) {
-            query = query.gt('created_at', since)
-          }
-
-          const { data: missed, error: missedError } = await query
-          LOG('missed messages fetch result:', { count: missed?.length ?? 0, error: missedError })
-
-          if (missed && missed.length > 0) {
-            LOG('missed message ids:', missed.map((m) => m.id.slice(0, 8)))
-            setMessages((prev) => {
-              const existingIds = new Set(prev.map((m) => m.id))
-              const newMsgs = (missed as Message[]).filter((m) => !existingIds.has(m.id))
-              LOG('after dedup, adding missed:', newMsgs.length, 'messages')
-              return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
-            })
-          }
-        }
-        setConnected(true)
+        updateConnectionState('connected')
+        await syncLatestMessages(isReconnect ? 'reconnect' : 'subscribed')
       }
 
       if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         ERR('channel disconnected with status:', status)
-        setConnected(false)
+        updateConnectionState('reconnecting')
       }
 
       prevStatusRef.current = status
     })
 
+    const syncOnForeground = () => {
+      void syncLatestMessages('foreground')
+    }
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        syncOnForeground()
+      }
+    }
+
+    const handleOffline = () => {
+      updateConnectionState('reconnecting')
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (connectionStateRef.current !== 'connected') {
+        void syncLatestMessages('poll-reconnecting')
+      }
+    }, RECOVERY_POLL_INTERVAL_MS)
+
+    window.addEventListener('focus', syncOnForeground)
+    window.addEventListener('online', syncOnForeground)
+    window.addEventListener('offline', handleOffline)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       LOG('=== ChatRoom unmount, removing channel ===')
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', syncOnForeground)
+      window.removeEventListener('online', syncOnForeground)
+      window.removeEventListener('offline', handleOffline)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       supabase.removeChannel(channel)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function handleLoadOlder() {
+    if (loadingOlder || loadOlderInFlightRef.current || !hasOlder) return
+
+    const before = oldestMessageTimeRef.current
+    LOG('handleLoadOlder triggered:', { before })
+
+    setLoadingOlder(true)
+    loadOlderInFlightRef.current = true
+
+    try {
+      let query = supabase
+        .from('messages')
+        .select('*, sender:profiles!sender_id(*), reactions(*), reads:message_reads(*)')
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE + 1)
+
+      if (before) {
+        query = query.lt('created_at', before)
+      }
+
+      const { data, error } = await query
+      LOG('handleLoadOlder result:', { count: data?.length ?? 0, error })
+
+      if (error) {
+        throw error
+      }
+
+      const rows = (data as Message[]) ?? []
+      const nextHasOlder = rows.length > PAGE_SIZE
+      const page = rows.slice(0, PAGE_SIZE).reverse()
+
+      setHasOlder(nextHasOlder)
+      if (page.length === 0) {
+        return
+      }
+
+      setMessages((prev) => mergeMessages(page, prev))
+    } catch (error) {
+      ERR('handleLoadOlder failed:', error)
+    } finally {
+      loadOlderInFlightRef.current = false
+      setLoadingOlder(false)
+    }
+  }
 
   async function sendMessage(content: string, imageUrl?: string) {
     const tempId = `temp-${Date.now()}`
@@ -303,7 +445,7 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
 
   return (
     <div className="h-screen flex flex-col bg-terminal-bg font-mono">
-      <TitleBar connected={connected} />
+      <TitleBar status={connectionState} />
       <ChatHeader
         myNickname={currentUser.nickname}
         partnerNickname={partnerUser?.nickname ?? '...'}
@@ -313,6 +455,9 @@ export default function ChatRoom({ currentUser, partnerUser, initialMessages }: 
           messages={messages}
           currentUserId={currentUser.id}
           onReaction={toggleReaction}
+          hasOlder={hasOlder}
+          loadingOlder={loadingOlder}
+          onLoadOlder={handleLoadOlder}
         />
       </div>
       <ChatInput

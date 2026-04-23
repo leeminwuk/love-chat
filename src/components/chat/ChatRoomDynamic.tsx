@@ -9,6 +9,7 @@ type Props = {
   currentUser: Profile
   partnerUser: Profile | null
   initialMessages: Message[]
+  initialHasOlder: boolean
 }
 
 export default function ChatRoomDynamic(props: Props) {
