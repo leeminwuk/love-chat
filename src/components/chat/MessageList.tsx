@@ -25,8 +25,8 @@ export default function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null)
   const shouldStickToBottomRef = useRef(true)
   const metricsRef = useRef({
-    firstId: messages[0]?.id ?? null,
-    lastId: messages[messages.length - 1]?.id ?? null,
+    firstId: null as string | null,
+    lastId: null as string | null,
     scrollHeight: 0,
   })
 
