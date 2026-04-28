@@ -22,7 +22,6 @@ export default function MessageList({
   onLoadOlder,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const shouldStickToBottomRef = useRef(true)
   const metricsRef = useRef({
     firstId: null as string | null,
@@ -34,18 +33,20 @@ export default function MessageList({
     const container = containerRef.current
     if (!container) return
 
+    const scrollContainer = container
+
     function handleScroll() {
       const distanceFromBottom =
-        container.scrollHeight - (container.scrollTop + container.clientHeight)
+        scrollContainer.scrollHeight - (scrollContainer.scrollTop + scrollContainer.clientHeight)
       shouldStickToBottomRef.current = distanceFromBottom < 120
 
-      if (container.scrollTop < 120 && hasOlder && !loadingOlder) {
+      if (scrollContainer.scrollTop < 120 && hasOlder && !loadingOlder) {
         onLoadOlder()
       }
     }
 
-    container.addEventListener('scroll', handleScroll)
-    return () => container.removeEventListener('scroll', handleScroll)
+    scrollContainer.addEventListener('scroll', handleScroll)
+    return () => scrollContainer.removeEventListener('scroll', handleScroll)
   }, [hasOlder, loadingOlder, onLoadOlder])
 
   useLayoutEffect(() => {
@@ -59,10 +60,17 @@ export default function MessageList({
     const prependedOlder = previous.firstId !== null && firstId !== previous.firstId && lastId === previous.lastId
     const appendedNewer = previous.lastId !== null && lastId !== previous.lastId
 
+    const scrollToBottom = () => {
+      container.scrollTop = container.scrollHeight
+    }
+
+    let scrollFrame: number | null = null
+
     if (prependedOlder) {
       container.scrollTop += currentScrollHeight - previous.scrollHeight
     } else if (previous.lastId === null || (appendedNewer && shouldStickToBottomRef.current)) {
-      bottomRef.current?.scrollIntoView({ behavior: previous.lastId === null ? 'auto' : 'smooth' })
+      scrollToBottom()
+      scrollFrame = window.requestAnimationFrame(scrollToBottom)
     }
 
     metricsRef.current = {
@@ -70,10 +78,16 @@ export default function MessageList({
       lastId,
       scrollHeight: container.scrollHeight,
     }
+
+    return () => {
+      if (scrollFrame !== null) {
+        window.cancelAnimationFrame(scrollFrame)
+      }
+    }
   }, [messages])
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+    <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-2">
       <div className="text-terminal-dim text-[11px] text-center mb-2">
         ── session started ──
       </div>
@@ -96,7 +110,6 @@ export default function MessageList({
           onReaction={onReaction}
         />
       ))}
-      <div ref={bottomRef} />
     </div>
   )
 }
