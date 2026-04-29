@@ -101,7 +101,7 @@ export default function ChatRoom({
       setConnectionState(nextState)
     }
 
-    const syncLatestMessages = async (reason: string) => {
+    const syncLatestMessages = async (reason: string, replace = false) => {
       if (syncInFlightRef.current) {
         LOG('sync skipped, already in flight:', reason)
         return
@@ -129,7 +129,7 @@ export default function ChatRoom({
         const normalized = [...(data as Message[])].reverse()
 
         setMessages((prev) => {
-          const next = mergeMessages(prev, normalized)
+          const next = replace ? normalized : mergeMessages(prev, normalized)
           LOG('sync merged messages:', { reason, prevCount: prev.length, nextCount: next.length })
           return next
         })
@@ -139,6 +139,8 @@ export default function ChatRoom({
         syncInFlightRef.current = false
       }
     }
+
+    void syncLatestMessages('mount', true)
 
     // 초기 읽음 처리
     const unread = initialMessages.filter(
@@ -277,7 +279,9 @@ export default function ChatRoom({
         LOG('SUBSCRIBED | isReconnect:', isReconnect, '| prevStatus:', prevStatusRef.current)
 
         updateConnectionState('connected')
-        await syncLatestMessages(isReconnect ? 'reconnect' : 'subscribed')
+        if (isReconnect) {
+          await syncLatestMessages('reconnect')
+        }
       }
 
       if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {

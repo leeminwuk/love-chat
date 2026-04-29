@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { connection } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { Message } from '@/types'
 import ChatRoomDynamic from '@/components/chat/ChatRoomDynamic'
@@ -7,43 +6,40 @@ import ChatRoomDynamic from '@/components/chat/ChatRoomDynamic'
 const INITIAL_PAGE_SIZE = 50
 
 export default async function ChatPage() {
-  await connection()
-
   const supabase = await createClient()
 
   // 인증 확인
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // 내 프로필 확인
-  const { data: myProfile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
+  const [myProfileResult, otherProfileResult, messagesResult] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single(),
+    supabase
+      .from('profiles')
+      .select('*')
+      .neq('id', user.id)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('messages')
+      .select(`
+        *,
+        sender:profiles!sender_id(*),
+        reactions(*),
+        reads:message_reads(*)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(INITIAL_PAGE_SIZE + 1),
+  ])
 
+  const myProfile = myProfileResult.data
   if (!myProfile) redirect('/setup')
 
-  // 상대방 프로필 (나 제외 첫 번째)
-  const { data: otherProfile } = await supabase
-    .from('profiles')
-    .select('*')
-    .neq('id', user.id)
-    .single()
-
-  // 초기 메시지 로드 (최신 50개 + 이전 페이지 존재 여부 확인용 1개)
-  const { data: messages } = await supabase
-    .from('messages')
-    .select(`
-      *,
-      sender:profiles!sender_id(*),
-      reactions(*),
-      reads:message_reads(*)
-    `)
-    .order('created_at', { ascending: false })
-    .limit(INITIAL_PAGE_SIZE + 1)
-
-  const newestFirst = (messages as Message[]) ?? []
+  const newestFirst = (messagesResult.data as Message[]) ?? []
   const initialHasOlder = newestFirst.length > INITIAL_PAGE_SIZE
   const initialMessages = newestFirst
     .slice(0, INITIAL_PAGE_SIZE)
@@ -52,7 +48,7 @@ export default async function ChatPage() {
   return (
     <ChatRoomDynamic
       currentUser={myProfile}
-      partnerUser={otherProfile ?? null}
+      partnerUser={otherProfileResult.data ?? null}
       initialMessages={initialMessages}
       initialHasOlder={initialHasOlder}
     />
