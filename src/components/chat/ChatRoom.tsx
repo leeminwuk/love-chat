@@ -17,7 +17,10 @@ type ChatRoomProps = {
 
 type ConnectionState = 'connecting' | 'connected' | 'reconnecting'
 
-const LOG = (...args: unknown[]) => console.log('[CHAT]', ...args)
+const DEBUG_CHAT = process.env.NODE_ENV !== 'production'
+const LOG = (...args: unknown[]) => {
+  if (DEBUG_CHAT) console.log('[CHAT]', ...args)
+}
 const ERR = (...args: unknown[]) => console.error('[CHAT][ERR]', ...args)
 const PAGE_SIZE = 50
 const RECOVERY_POLL_INTERVAL_MS = 1500
@@ -105,25 +108,14 @@ export default function ChatRoom({
       }
 
       syncInFlightRef.current = true
-      const since = lastMessageTimeRef.current
-      LOG('syncLatestMessages start:', { reason, since })
+      LOG('syncLatestMessages start:', { reason, lastMessageTime: lastMessageTimeRef.current })
 
       try {
-        let query = supabase
+        const { data, error } = await supabase
           .from('messages')
           .select('*, sender:profiles!sender_id(*), reactions(*), reads:message_reads(*)')
-
-        if (since) {
-          query = query
-            .gt('created_at', since)
-            .order('created_at', { ascending: true })
-        } else {
-          query = query
-            .order('created_at', { ascending: false })
-            .limit(PAGE_SIZE)
-        }
-
-        const { data, error } = await query
+          .order('created_at', { ascending: false })
+          .limit(PAGE_SIZE)
         LOG('syncLatestMessages result:', { reason, count: data?.length ?? 0, error })
 
         if (error) {
@@ -134,7 +126,7 @@ export default function ChatRoom({
           return
         }
 
-        const normalized = since ? (data as Message[]) : [...(data as Message[])].reverse()
+        const normalized = [...(data as Message[])].reverse()
 
         setMessages((prev) => {
           const next = mergeMessages(prev, normalized)

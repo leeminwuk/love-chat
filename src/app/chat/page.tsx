@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { connection } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { Message } from '@/types'
 import ChatRoomDynamic from '@/components/chat/ChatRoomDynamic'
@@ -6,6 +7,8 @@ import ChatRoomDynamic from '@/components/chat/ChatRoomDynamic'
 const INITIAL_PAGE_SIZE = 50
 
 export default async function ChatPage() {
+  await connection()
+
   const supabase = await createClient()
 
   // 인증 확인

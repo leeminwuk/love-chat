@@ -37,6 +37,7 @@ const dim = (s) => `\x1b[90m${s}\x1b[0m`
 const gray = (s) => `\x1b[37m${s}\x1b[0m`
 const bold = (s) => `\x1b[1m${s}\x1b[0m`
 const notificationsEnabled = env.CHAT_CLI_NOTIFICATIONS !== '0'
+const INITIAL_MESSAGE_LIMIT = 200
 
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString('ko-KR', {
@@ -148,26 +149,55 @@ async function main() {
   console.log(dim('── session started ──'))
   console.log()
 
-  // 최근 메시지 로드
-  const { data: recentMsgs } = await supabase
-    .from('messages')
-    .select('*, sender:profiles!sender_id(nickname)')
-    .order('created_at', { ascending: true })
+  async function fetchLatestMessages() {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*, sender:profiles!sender_id(nickname)')
+      .order('created_at', { ascending: false })
+      .limit(INITIAL_MESSAGE_LIMIT)
 
-  if (recentMsgs) {
+    if (error) {
+      process.stderr.write(`\x1b[31m[warn] 최신 메시지 fetch 실패: ${error.message}\x1b[0m\n`)
+      return []
+    }
+
+    return [...(data ?? [])].reverse()
+  }
+
+  // 최근 메시지 로드
+  const recentMsgs = await fetchLatestMessages()
+
+  if (recentMsgs.length > 0) {
     for (const msg of recentMsgs) {
       printMessage({ ...msg, nickname: msg.sender?.nickname }, user.id)
     }
   }
 
   // 수신된 메시지 ID 추적 (중복 방지)
-  const receivedIds = new Set(recentMsgs?.map((m) => m.id) ?? [])
+  const receivedIds = new Set(recentMsgs.map((m) => m.id))
 
-  // 재연결 복구용 상태 추적
+  // 재연결/이벤트 누락 복구용 상태 추적
   let prevStatus = null
-  let lastMessageTime = recentMsgs?.length > 0
+  let lastMessageTime = recentMsgs.length > 0
     ? recentMsgs[recentMsgs.length - 1].created_at
     : null
+
+  async function syncMissedMessages(reason) {
+    const latestMessages = await fetchLatestMessages()
+    const unseen = latestMessages.filter((msg) => !receivedIds.has(msg.id))
+
+    if (unseen.length === 0) return
+
+    for (const msg of unseen) {
+      receivedIds.add(msg.id)
+      printMessage({ ...msg, nickname: msg.sender?.nickname ?? '???' }, user.id)
+      if (msg.created_at > (lastMessageTime ?? '')) {
+        lastMessageTime = msg.created_at
+      }
+    }
+
+    rl.prompt(true)
+  }
 
   // Realtime 구독
   const channel = supabase.channel('cli-chat')
@@ -208,29 +238,7 @@ async function main() {
 
     if (status === 'SUBSCRIBED' && isReconnect) {
       process.stdout.write(`\n${green('● 재연결됨')} ${dim('— 누락 메시지 복구 중...')}\n`)
-
-      let query = supabase
-        .from('messages')
-        .select('*, sender:profiles!sender_id(nickname)')
-        .order('created_at', { ascending: true })
-      if (lastMessageTime) {
-        query = query.gt('created_at', lastMessageTime)
-      }
-
-      const { data: missed, error } = await query
-      if (error) {
-        process.stderr.write(`\x1b[31m[warn] 누락 메시지 fetch 실패: ${error.message}\x1b[0m\n`)
-      } else if (missed && missed.length > 0) {
-        for (const msg of missed) {
-          if (receivedIds.has(msg.id)) continue
-          receivedIds.add(msg.id)
-          printMessage({ ...msg, nickname: msg.sender?.nickname ?? '???' }, user.id)
-          if (msg.created_at > (lastMessageTime ?? '')) {
-            lastMessageTime = msg.created_at
-          }
-        }
-      }
-      rl.prompt(true)
+      await syncMissedMessages('누락 메시지')
     }
 
     if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -240,12 +248,17 @@ async function main() {
     prevStatus = status
   })
 
+  const pollInterval = setInterval(() => {
+    void syncMissedMessages('최신 메시지 동기화')
+  }, 5000)
+
   // 입력 루프
   const inputPrompt = () => {
     rl.question('', async (input) => {
       const msg = input.trim()
       if (msg === '/quit') {
         console.log(dim('bye.'))
+        clearInterval(pollInterval)
         supabase.removeChannel(channel)
         rl.close()
         process.exit(0)
@@ -255,22 +268,28 @@ async function main() {
         return
       }
 
-      const { error } = await supabase.from('messages').insert({
-        sender_id: user.id,
-        content: msg,
-        image_url: null,
-      })
+      const { data: sentMessage, error } = await supabase
+        .from('messages')
+        .insert({
+          sender_id: user.id,
+          content: msg,
+          image_url: null,
+        })
+        .select('*, sender:profiles!sender_id(nickname)')
+        .single()
 
       if (error) {
         console.error(`\x1b[31merror: ${error.message}\x1b[0m`)
       } else {
-        const sentAt = new Date().toISOString()
-        printMessage(
-          { created_at: sentAt, sender_id: user.id, content: msg, nickname: trimmed },
-          user.id
-        )
-        if (sentAt > (lastMessageTime ?? '')) {
-          lastMessageTime = sentAt
+        if (!receivedIds.has(sentMessage.id)) {
+          printMessage(
+            { ...sentMessage, nickname: sentMessage.sender?.nickname ?? trimmed },
+            user.id
+          )
+          receivedIds.add(sentMessage.id)
+        }
+        if (sentMessage.created_at > (lastMessageTime ?? '')) {
+          lastMessageTime = sentMessage.created_at
         }
       }
 
